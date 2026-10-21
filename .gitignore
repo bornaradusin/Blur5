@@ -1,0 +1,26 @@
+/src/
+/logs/
+
+# Build inputs and outputs fetched or made by tools/ (compiler-rt builtins, ...).
+/.deps/
+/downloads/
+
+# prospero-win packages and Home apps built by tools/build-prospero-win.sh (Linux or macOS).
+/release/
+
+.DS_Store
+
+# Python caches.
+__pycache__/
+
+# The host install check's copy, prefix and install (tools/host-install.sh).
+/host-check/
+/docs/superpowers/
+
+# The six projects Blur5 is built from (tools/linked-projects.txt), downloaded by the build.
+/prospero-win/
+/PS5_Mesa/
+/PS5_Vulkan/
+/PS5_PayloadSDK/
+/ps5-native-app-boilerplate/
+/ps5-opengl/
