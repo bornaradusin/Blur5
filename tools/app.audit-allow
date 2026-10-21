@@ -1,0 +1,24 @@
+# PE files in the app (release/PPSA11016) built from source by tools/build.sh; tools/build.sh
+# audit copies this list into the app folder as .audit-allow while it audits, then removes it.
+# Wine's Windows modules (host Wine and Wine's PS5 modules, wowprospero, wow64native):
+win/wine/lib/wine/i386-windows/*
+win/wine/lib/wine/x86_64-windows/*
+# Mesa's WGL/Zink (opengl32.dll and its driver), built from PS5_Mesa:
+win/mesa-zink/i386-windows/*
+win/mesa-zink/x86_64-windows/*
+# The bare prefix the bundle carries: Wine's builtin DLLs and programs as the prefix step's
+# wineboot installs them (only members with Wine's own marker pass, so a Microsoft file among
+# them is still caught), Wine's generated WinRT metadata, and our DXVK in system32/syswow64.
+assets/bundle/bare-prefix-blur5.zip!wine:drive_c/*
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/system32/winmetadata/*.winmd
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/syswow64/winmetadata/*.winmd
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/system32/d3d8.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/system32/d3d9.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/system32/d3d10core.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/system32/d3d11.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/system32/dxgi.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/syswow64/d3d8.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/syswow64/d3d9.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/syswow64/d3d10core.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/syswow64/d3d11.dll
+assets/bundle/bare-prefix-blur5.zip!drive_c/windows/syswow64/dxgi.dll

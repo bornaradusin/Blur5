@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# Build Blur5, the same way on any machine: prospero-win (the Wine runtime and Blur's runner),
+# our DXVK, the bare prefix, the launcher's bundle and the app, PPSA11016.
+#
+#   tools/build.sh [--clean] [STEP...]
+#
+# It builds the committed HEAD of this repo, never the working tree: the repo is cloned from
+# the working copy, mounted read-only, and the six projects it is built from are downloaded at
+# the commits tools/linked-projects.txt pins (or taken from copies beside the working copy), into
+# a Docker volume, and built there, at fixed paths, inside the pinned image
+# (tools/container/Dockerfile: x86-64 Ubuntu 24.04, packages from one snapshot day). Outputs,
+# with release/SHA256SUMS, are copied to release/. The same commit gives the same SHA256SUMS.
+# x86-64 Linux only: the prefix step runs 32-bit x86 Wine.
+#
+# STEPs, in order:
+#   setup title radv zink hostwine wineps5 cpu pkg apps dxvk prefix
+#             tools/build-prospero-win.sh's steps
+#   plan      profile/blur/make-blur-plan.py; fails if the committed
+#             launcher/assets/plans/BLUR.json differs from what it writes
+#   bundle    tools/make-bundle.py: the bare prefix into the launcher's assets/bundle
+#   opengl-sdk  tools/build-opengl-sdk.sh: the launcher's ps5-opengl SDK, from the linked ps5-opengl
+#             project -> release/ps5-opengl-sdk-<version>.tar.gz (its release download
+#             is gone; launcher/tools/fetch-opengl-sdk.sh pins this build's hashes)
+#   game-app  the app: the launcher as eboot.bin, the runner (apps step) as game.bin
+#             -> release/PPSA11016/ and release/PPSA11016.zip
+#   audit     tools/audit.py over the committed tree and release/PPSA11016 (the PE files
+#             built from source are listed in tools/app.audit-allow)
+# Default: all. --clean starts from an empty volume (BLUR5_VOLUME names it; default blur5-work).
+set -euo pipefail
+here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+image=blur5-build volume=${BLUR5_VOLUME:-blur5-work}
+pw_steps="setup title radv zink hostwine wineps5 cpu pkg apps dxvk prefix"
+all="$pw_steps plan bundle opengl-sdk game-app audit"
+clean=0
+[[ ${1:-} == --clean ]] && { clean=1; shift; }
+steps=" ${*:-$all} "
+for s in $steps; do
+    [[ " $all " == *" $s "* ]] || { echo "unknown step: $s (steps: $all)" >&2; exit 2; }
+done
+case $(uname -sm) in
+"Linux x86_64") ;;
+*) echo "tools/build.sh builds on x86-64 Linux only (the prefix step runs 32-bit x86 Wine);" \
+        "this machine is $(uname -sm)" >&2
+   exit 2 ;;
+esac
+
+git -C "$here" diff --quiet HEAD -- . ':!PS5_Mesa' ':!PS5_Vulkan' ':!prospero-win' \
+    ':!PS5_PayloadSDK' ':!ps5-native-app-boilerplate' ':!ps5-opengl' ||
+    echo "==> note: $here has uncommitted changes; they are not built" >&2
+# The image is built once per Dockerfile: it carries the Dockerfile's git hash as a label, so an
+# image built here before, or copied in (docker save | docker load), is used as it is.
+recipe=$(git -C "$here" hash-object tools/container/Dockerfile)
+[[ $(docker image inspect -f '{{index .Config.Labels "blur5.dockerfile"}}' "$image" 2>/dev/null) == "$recipe" ]] ||
+    docker build -q --platform linux/amd64 --label "blur5.dockerfile=$recipe" -t "$image" "$here/tools/container" >/dev/null
+(( clean )) && docker volume rm -f "$volume" >/dev/null
+docker volume create "$volume" >/dev/null
+mkdir -p "$here/release"
+
+pw=; for s in $steps; do [[ " $pw_steps " == *" $s "* ]] && pw+=" $s"; done
+docker run --rm --platform linux/amd64 -v "$volume:/w" -v "$here:/src/blur5:ro" -v "$here/release:/out" \
+    -e REV="$(git -C "$here" rev-parse HEAD)" -e OWNER="$(id -u):$(id -g)" \
+    "$image" bash -euo pipefail -c "
+want() { [[ '$steps' == *\" \$1 \"* ]]; }
+checkout() { # source dir commit
+    [[ -d \$2/.git ]] || git clone -q --no-checkout \"\$1\" \"\$2\"
+    git -C \"\$2\" fetch -q \"\$1\" \"\$3\"
+    git -C \"\$2\" checkout -q --force --detach \"\$3\"
+}
+checkout /src/blur5 /w/blur5 \"\$REV\"
+cd /w/blur5
+# The linked projects (tools/linked-projects.txt), each cloned once at its pinned commit (again
+# only when that commit is new to it), from the working copy's own clones when it has them;
+# the setup step makes the patched branches. Not checked out again otherwise: that would leave
+# prospero-win, PS5_Mesa and PS5_Vulkan on their unpatched commits for a run without the
+# setup step.
+bash tools/get-linked.sh --if-missing /w/blur5 /src/blur5
+
+if [[ -n '$pw' ]]; then tools/build-prospero-win.sh $pw; fi
+
+L=/w/blur5/launcher A=release/PPSA11016
+if want plan; then
+    echo '==> plan'
+    python3 profile/blur/make-blur-plan.py
+    git diff --exit-code -- launcher/assets/plans/BLUR.json ||
+        { echo 'make-blur-plan.py writes another plan than the committed launcher/assets/plans/BLUR.json' >&2; exit 1; }
+fi
+if want bundle; then
+    echo '==> bundle'
+    python3 tools/make-bundle.py --launcher \$L
+fi
+if want opengl-sdk; then
+    echo '==> opengl-sdk'
+    rm -f release/ps5-opengl-sdk-*.tar.gz
+    # The payload SDK the launcher builds with (v0.42, hash-checked), for the SDK as well.
+    bash \$L/tools/setup-native-dependencies.sh >/dev/null
+    tools/build-opengl-sdk.sh \$L/.deps/native/ps5-payload-sdk release
+fi
+if want game-app; then
+    # The launcher (GNUmakefile GAME=PPSA11016) as eboot.bin, prospero-win's runner (the apps
+    # step) as game.bin, with the bundle.
+    echo '==> game-app'
+    # The launcher's pinned ps5-opengl SDK, from the opengl-sdk step: launcher/tools/
+    # fetch-opengl-sdk.sh checks its hash before unpacking it.
+    sdk=\$(cd release && ls ps5-opengl-sdk-*.tar.gz 2>/dev/null || true)
+    [[ -n \$sdk && -f release/\$sdk ]] || { echo 'no release/ps5-opengl-sdk-*.tar.gz: run the opengl-sdk step' >&2; exit 2; }
+    mkdir -p \$L/.deps/ps5-opengl && cp release/\$sdk \$L/.deps/ps5-opengl/
+    make -C \$L USE_CCACHE=0 GAME=PPSA11016 app
+    D=\$L/dist/PPSA11016
+    rm -rf \$D/assets/bundle && cp -a \$L/assets/bundle \$D/assets/bundle
+    rm -rf \$A release/PPSA11016.zip && cp -a release/apps/PPSA11016 \$A
+    mv \$A/eboot.bin \$A/game.bin
+    cp \$D/eboot.bin \$D/store-worker.elf \$D/lapy.elf \$D/lapy-manifest.json \$A/
+    # The launcher's licences go in with the runner's: a separate licenses/ beside LICENSES/
+    # is one folder on a case-insensitive disk (a player unzipping on Windows or a Mac).
+    cp -a \$D/assets \$A/assets && cp -a \$D/licenses/. \$A/LICENSES/
+    # ps5-opengl, linked into eboot.bin: its licence and notices, from the SDK archive
+    # fetch-opengl-sdk.sh unpacked for this build.
+    o=\$L/.deps/ps5-opengl/\${sdk%.tar.gz}
+    mkdir -p \$A/LICENSES/ps5-opengl
+    cp -a \$o/LICENSE \$o/LICENSES \$o/THIRD_PARTY_NOTICES.md \$A/LICENSES/ps5-opengl/
+    # Our DXVK, in the bare prefix the bundle carries: its licence and those of the code built
+    # into its DLLs, from the source the dxvk step built.
+    x=.deps/dxvk-src
+    mkdir -p \$A/LICENSES/dxvk/dxbc-spirv \$A/LICENSES/dxvk/libdisplay-info \$A/LICENSES/dxvk/vulkan \$A/LICENSES/dxvk/spirv
+    cp \$x/LICENSE \$A/LICENSES/dxvk/
+    cp \$x/subprojects/dxbc-spirv/LICENSE \$A/LICENSES/dxvk/dxbc-spirv/
+    cp \$x/subprojects/libdisplay-info/LICENSE \$A/LICENSES/dxvk/libdisplay-info/
+    cp \$x/include/vulkan/LICENSE.md \$A/LICENSES/dxvk/vulkan/
+    cp \$x/include/spirv/LICENSE \$A/LICENSES/dxvk/spirv/
+    # The libraries in the launcher's own source tree (its network ones are in assets/licenses).
+    mkdir -p \$A/LICENSES/launcher
+    cp \$L/THIRD_PARTY_NOTICES.md \$A/LICENSES/launcher/
+    for t in miniz/LICENSE monocypher/LICENCE.md picosha2/LICENSE stb/LICENSE yyjson/LICENSE; do
+        cp \$L/src/third_party/\$t \$A/LICENSES/launcher/\${t%%/*}-\${t##*/}
+    done
+    # SOURCES.txt and THIRD_PARTY.md, which prospero-win's packager wrote for its own package:
+    # made to name this commit, the launcher and our DXVK, and to describe this folder.
+    python3 tools/make-notices.py \$A \$REV
+    python3 tools/make-app-zip.py \$A release/PPSA11016.zip
+fi
+if want audit; then
+    echo '==> audit'
+    rm -rf /tmp/tree && mkdir /tmp/tree && git archive HEAD | tar -x -C /tmp/tree
+    python3 tools/audit.py /tmp/tree
+    # The app folder, with the PE files built from source allowed; the list is not shipped.
+    cp tools/app.audit-allow \$A/.audit-allow
+    rc=0; python3 tools/audit.py \$A || rc=\$?
+    rm -f \$A/.audit-allow
+    (( rc == 0 )) || exit \$rc
+fi
+
+# The outputs, and their hashes.
+out='PPSA99995 apps PPSA11016 PPSA11016.zip bare-prefix-blur5.zip '\$(cd release && ls ps5-opengl-sdk-*.tar.gz 2>/dev/null || true)
+# Only what the volume has replaces release/: an output it lacks (a partial run on a fresh
+# volume) is left as it was, and hashed with the rest.
+for o in \$out; do [[ ! -e release/\$o ]] || { rm -rf /out/\$o; cp -a release/\$o /out/; }; done
+cd /out
+for o in \$out; do if [[ -e \$o ]]; then find ./\$o -type f -print0; fi; done | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+chown -R \"\$OWNER\" \$out SHA256SUMS 2>/dev/null || true
+echo \"==> \$(wc -l < SHA256SUMS) files; release/SHA256SUMS: \$(sha256sum SHA256SUMS | cut -c1-16)\""

@@ -1,0 +1,11 @@
+# The six open-source projects Blur5 is built from, each at a fixed commit. They are not
+# stored in this repo: tools/build.sh downloads each one at the commit below
+# (tools/get-linked.sh). To use a newer version, change its commit here.
+#
+# folder                      address                                                      commit
+prospero-win                  https://github.com/mpereiraesaa/prospero-win.git              644e32e400c555e340d507383398c5d21b39b0b0
+PS5_Mesa                      https://github.com/mpereiraesaa/PS5_Mesa.git                  9d3cd417ff488bd1a7cc68c1f1c8e1df409c2a11
+PS5_Vulkan                    https://github.com/mpereiraesaa/PS5_Vulkan.git                c701802d3e992d0d22f63b1f511db62df8a0bb1f
+PS5_PayloadSDK                https://github.com/mihawk-99/PS5_PayloadSDK.git               95c08f27386fc698f6bbe21dde3030140a41d10b
+ps5-native-app-boilerplate    https://github.com/mpereiraesaa/ps5-native-app-boilerplate.git 30597512539e7edfde079cbcaf4a626bc0a948c5
+ps5-opengl                    https://github.com/mpereiraesaa/ps5-opengl.git                b696cd39d63a4e346da3c680a31238b41ae359a8
