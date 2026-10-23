@@ -1,23 +1,14 @@
 <p align="center">
-  <img src="art/blur5.png" width="128" alt="Blur5 icon">
-</p>
-
-<h1 align="center">Blur5</h1>
-
-<p align="center">
-  Play the PC game <strong>Blur</strong> (Bizarre Creations, 2010)
-  on a jailbroken PlayStation 5, using your own copy of the game.
+  <img src="art/blur5.png" width="110" alt="Blur5">
 </p>
 
 <p align="center">
   <a href="https://www.buymeacoffee.com/bornaradusin">
     <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png"
          alt="Buy Me a Coffee"
-         width="140">
+         width="120">
   </a>
 </p>
-
----
 
 Blur5 lets you play the PC game *Blur* (Bizarre Creations, 2010) on a jailbroken PS5, using
 your own copy of the game. It gets its own tile on the PS5 Home screen, called **Blur5**
